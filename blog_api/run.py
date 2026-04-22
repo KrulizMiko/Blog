@@ -49,4 +49,5 @@ def seed_db():
         print(f'Created {len(tags)} tags.')
 
 if __name__ == '__main__':
+    print("Starting Flask app")
     app.run(debug=os.getenv('FLASK_ENV') == 'development')

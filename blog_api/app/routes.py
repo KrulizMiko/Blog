@@ -1,5 +1,6 @@
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, render_template, redirect, url_for, flash, session
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
+from flask_login import login_user, logout_user, login_required, current_user
 from marshmallow import ValidationError
 from app import db
 from app.models import User, Post, Category, Tag, Comment
@@ -9,80 +10,98 @@ from app.schemas import (
 )
 from datetime import datetime
 
+print("Routes module imported")
+
 main_bp = Blueprint('main', __name__)
+
+@main_bp.route('/test', methods=['POST'])
+def test():
+    print("Test route called")
+    return "Test OK"
 
 # ======================== HEALTH CHECK ========================
 @main_bp.route('/', methods=['GET'])
 def index():
-    current_app.logger.info('Health check performed')
-    return jsonify({"message": "Блог API работает!", "version": "1.0"}), 200
+    page = request.args.get('page', 1, type=int)
+    per_page = 10
+    
+    posts = Post.query.filter_by(status='published').order_by(Post.create_date.desc()).paginate(
+        page=page, per_page=per_page, error_out=False
+    )
+    
+    categories = Category.query.all()
+    tags = Tag.query.all()
+    
+    return render_template('index.html', posts=posts, categories=categories, tags=tags)
 
 # ======================== АУТЕНТИФИКАЦИЯ ========================
-@main_bp.route('/api/auth/register', methods=['POST'])
+@main_bp.route('/register', methods=['GET', 'POST'])
 def register():
-    """Регистрация нового пользователя"""
-    try:
-        schema = UserRegistrationSchema()
-        data = schema.load(request.get_json())
-    except ValidationError as err:
-        current_app.logger.warning(f'Validation error during registration: {err.messages}')
-        return jsonify({'error': 'Validation error', 'messages': err.messages}), 400
+    print("Register function called")
+    current_app.logger.info("Register route called")
+    current_app.logger.info(f"Request method: {request.method}")
+    if request.method == 'POST':
+        print("POST request received")
+        print(f"Request form: {request.form}")
+        username = request.form.get('username')
+        print(f"Username: {username}")
+        full_name = request.form.get('full_name')
+        password = request.form.get('password')
+        confirm_password = request.form.get('confirm_password')
+        
+        if password != confirm_password:
+            flash('Пароли не совпадают', 'error')
+            return render_template('register.html')
+        
+        if User.query.filter_by(username=username).first():
+            flash('Пользователь с таким именем уже существует', 'error')
+            return render_template('register.html')
+        
+        user = User(username=username, full_name=full_name)
+        user.set_password(password)
+        try:
+            print(f"Creating user: {username}")
+            print(f"User object created: {user}")
+            print("Password set")
+            db.session.add(user)
+            print("Added to session")
+            db.session.commit()
+            print("User committed")
+            # login_user(user)  # Временно отключим
+            print("User logged in")
+            # flash('Регистрация прошла успешно. Теперь войдите в систему.', 'success')
+            return "Registration successful"  # redirect(url_for('main.login'))
+        except Exception as e:
+            db.session.rollback()
+            print(f"Error: {str(e)}")
+            current_app.logger.error(f'Registration error: {str(e)}')
+            # flash('Ошибка при регистрации', 'error')
+            return "Error: " + str(e)
     
-    # Проверка что пользователь не существует
-    if User.query.filter_by(username=data['username']).first():
-        current_app.logger.warning(f'User {data["username"]} already exists')
-        return jsonify({'error': 'User already exists'}), 409
-    
-    # Создание пользователя
-    user = User(
-        username=data['username'],
-        full_name=data.get('full_name')
-    )
-    user.set_password(data['password'])
-    
-    db.session.add(user)
-    db.session.commit()
-    
-    current_app.logger.info(f'User {user.username} registered successfully')
-    
-    return jsonify({
-        'message': 'User registered successfully',
-        'user': user.to_dict()
-    }), 201
+    return render_template('register.html')
 
-@main_bp.route('/api/auth/login', methods=['POST'])
+@main_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    """Вход пользователя"""
-    try:
-        schema = UserLoginSchema()
-        data = schema.load(request.get_json())
-    except ValidationError as err:
-        return jsonify({'error': 'Validation error', 'messages': err.messages}), 400
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        user = User.query.filter_by(username=username).first()
+        if user and user.check_password(password):
+            login_user(user)
+            flash('Вы успешно вошли в систему', 'success')
+            return redirect(url_for('main.index'))
+        else:
+            flash('Неверное имя пользователя или пароль', 'error')
     
-    user = User.query.filter_by(username=data['username']).first()
-    
-    if not user or not user.check_password(data['password']):
-        current_app.logger.warning(f'Failed login attempt for user {data.get("username")}')
-        return jsonify({'error': 'Invalid credentials'}), 401
-    
-    if not user.is_active:
-        return jsonify({'error': 'User account is inactive'}), 403
-    
-    access_token = create_access_token(identity=user.id_user)
-    current_app.logger.info(f'User {user.username} logged in successfully')
-    
-    return jsonify({
-        'message': 'Login successful',
-        'access_token': access_token,
-        'user': user.to_dict()
-    }), 200
+    return render_template('login.html')
 
-# ======================== УПРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЯМИ ========================
-@main_bp.route('/api/users/<int:user_id>', methods=['GET'])
-def get_user(user_id):
-    """Получить информацию о пользователе"""
-    user = User.query.get_or_404(user_id)
-    return jsonify(user.to_dict()), 200
+@main_bp.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('Вы вышли из системы', 'success')
+    return redirect(url_for('main.index'))
 
 @main_bp.route('/api/users', methods=['GET'])
 def get_all_users():
@@ -157,68 +176,58 @@ def create_tag():
     
     return jsonify({'message': 'Tag created', 'tag': tag.to_dict()}), 201
 
-# ======================== ПОСТЫ (CRUD) ========================
-@main_bp.route('/api/posts', methods=['GET'])
-def get_posts():
-    """Получить список всех постов"""
+@main_bp.route('/posts', methods=['GET'])
+def posts():
     page = request.args.get('page', 1, type=int)
-    per_page = request.args.get('per_page', 10, type=int)
-    status = request.args.get('status', 'published')
+    per_page = 10
     
-    query = Post.query.filter_by(status=status)
-    
-    if request.args.get('category_id'):
-        query = query.filter_by(id_category=request.args.get('category_id', type=int))
-    
-    posts = query.order_by(Post.create_date.desc()).paginate(
+    posts = Post.query.filter_by(status='published').order_by(Post.create_date.desc()).paginate(
         page=page, per_page=per_page, error_out=False
     )
     
-    return jsonify({
-        'posts': [post.to_dict() for post in posts.items],
-        'total': posts.total,
-        'pages': posts.pages,
-        'current_page': page
-    }), 200
+    return render_template('posts.html', posts=posts)
 
-@main_bp.route('/api/posts', methods=['POST'])
-@jwt_required()
+@main_bp.route('/create-post', methods=['GET', 'POST'])
+@login_required
 def create_post():
-    """Создать новый пост"""
-    user_id = get_jwt_identity()
+    if request.method == 'POST':
+        title = request.form.get('title')
+        content = request.form.get('content')
+        id_category = request.form.get('id_category')
+        tags_str = request.form.get('tags')
+        status = request.form.get('status', 'published')
+        
+        post = Post(
+            title=title,
+            content=content,
+            id_user=current_user.id_user,
+            id_category=id_category if id_category else None,
+            status=status
+        )
+        
+        if tags_str:
+            tag_names = [name.strip() for name in tags_str.split(',') if name.strip()]
+            for tag_name in tag_names:
+                tag = Tag.query.filter_by(name=tag_name).first()
+                if not tag:
+                    tag = Tag(name=tag_name)
+                    db.session.add(tag)
+                post.tags.append(tag)
+        
+        db.session.add(post)
+        db.session.commit()
+        
+        flash('Пост создан успешно', 'success')
+        return redirect(url_for('main.post_detail', post_id=post.post_id))
     
-    try:
-        schema = PostCreateSchema()
-        data = schema.load(request.get_json())
-    except ValidationError as err:
-        return jsonify({'error': 'Validation error', 'messages': err.messages}), 400
-    
-    post = Post(
-        title=data['title'],
-        content=data['content'],
-        id_user=user_id,
-        id_category=data.get('id_category'),
-        status=data.get('status', 'published')
-    )
-    
-    # Добавление тегов
-    if data.get('id_tag'):
-        tag = Tag.query.get(data['id_tag'])
-        if tag:
-            post.tags.append(tag)
-    
-    db.session.add(post)
-    db.session.commit()
-    
-    current_app.logger.info(f'Post "{post.title}" created by user {user_id}')
-    
-    return jsonify({'message': 'Post created', 'post': post.to_dict()}), 201
+    categories = Category.query.all()
+    return render_template('create_post.html', categories=categories)
 
-@main_bp.route('/api/posts/<int:post_id>', methods=['GET'])
-def get_post(post_id):
-    """Получить пост по ID"""
+@main_bp.route('/post/<int:post_id>', methods=['GET'])
+def post_detail(post_id):
     post = Post.query.get_or_404(post_id)
-    return jsonify(post.to_dict(include_comments=True)), 200
+    author_posts = Post.query.filter_by(id_user=post.id_user, status='published').limit(5).all()
+    return render_template('post_detail.html', post=post, author_posts=author_posts)
 
 @main_bp.route('/api/posts/<int:post_id>', methods=['PUT'])
 @jwt_required()
@@ -283,75 +292,47 @@ def get_comments(post_id):
     
     return jsonify([comment.to_dict() for comment in comments]), 200
 
-@main_bp.route('/api/posts/<int:post_id>/comments', methods=['POST'])
-@jwt_required()
-def create_comment(post_id):
-    """Добавить комментарий к посту"""
-    user_id = get_jwt_identity()
+@main_bp.route('/post/<int:post_id>/comment', methods=['POST'])
+@login_required
+def add_comment(post_id):
     post = Post.query.get_or_404(post_id)
+    text = request.form.get('text')
     
-    try:
-        schema = CommentCreateSchema()
-        data = schema.load(request.get_json())
-    except ValidationError as err:
-        return jsonify({'error': 'Validation error', 'messages': err.messages}), 400
+    if not text:
+        flash('Комментарий не может быть пустым', 'error')
+        return redirect(url_for('main.post_detail', post_id=post_id))
     
-    comment = Comment(
-        text=data['text'],
-        id_post=post_id,
-        id_user=user_id
-    )
-    
+    comment = Comment(text=text, id_post=post_id, id_user=current_user.id_user)
     db.session.add(comment)
     db.session.commit()
     
-    current_app.logger.info(f'Comment added to post {post_id} by user {user_id}')
-    
-    return jsonify({'message': 'Comment created', 'comment': comment.to_dict()}), 201
+    flash('Комментарий добавлен', 'success')
+    return redirect(url_for('main.post_detail', post_id=post_id))
 
-@main_bp.route('/api/comments/<int:comment_id>', methods=['DELETE'])
-@jwt_required()
+@main_bp.route('/comment/<int:comment_id>/delete', methods=['POST'])
+@login_required
 def delete_comment(comment_id):
-    """Удалить комментарий"""
-    user_id = get_jwt_identity()
     comment = Comment.query.get_or_404(comment_id)
-    
-    # Может удалять только автор или автор поста
     post = comment.post
-    if comment.id_user != user_id and post.id_user != user_id:
-        current_app.logger.warning(f'Unauthorized delete attempt for comment {comment_id} by user {user_id}')
-        return jsonify({'error': 'Unauthorized'}), 403
+    
+    if comment.id_user != current_user.id_user and post.id_user != current_user.id_user:
+        flash('У вас нет прав на удаление этого комментария', 'error')
+        return redirect(url_for('main.post_detail', post_id=post.post_id))
     
     db.session.delete(comment)
     db.session.commit()
     
-    current_app.logger.info(f'Comment {comment_id} deleted by user {user_id}')
-    
-    return jsonify({'message': 'Comment deleted'}), 200
+    flash('Комментарий удален', 'success')
+    return redirect(url_for('main.post_detail', post_id=post.post_id))
 
-# ======================== ПОИСК И ФИЛЬТРАЦИЯ ========================
-@main_bp.route('/api/posts/search', methods=['GET'])
-def search_posts():
-    """Поиск постов по названию или содержанию"""
-    query = request.args.get('q', '')
-    
-    if len(query) < 2:
-        return jsonify({'error': 'Query must be at least 2 characters long'}), 400
-    
-    posts = Post.query.filter(
-        (Post.title.ilike(f'%{query}%') | Post.content.ilike(f'%{query}%')) &
-        (Post.status == 'published')
-    ).order_by(Post.create_date.desc()).all()
-    
-    return jsonify([post.to_dict() for post in posts]), 200
+@main_bp.route('/category/<int:category_id>')
+def posts_by_category(category_id):
+    category = Category.query.get_or_404(category_id)
+    posts = Post.query.filter_by(id_category=category_id, status='published').order_by(Post.create_date.desc()).all()
+    return render_template('posts_by_category.html', category=category, posts=posts)
 
-@main_bp.route('/api/users/<int:user_id>/posts', methods=['GET'])
-def get_user_posts(user_id):
-    """Получить все посты пользователя"""
-    user = User.query.get_or_404(user_id)
-    
-    posts = Post.query.filter_by(id_user=user_id, status='published').order_by(
-        Post.create_date.desc()
-    ).all()
-    
-    return jsonify([post.to_dict() for post in posts]), 200
+@main_bp.route('/my-posts')
+@login_required
+def my_posts():
+    posts = Post.query.filter_by(id_user=current_user.id_user).order_by(Post.create_date.desc()).all()
+    return render_template('my_posts.html', posts=posts)

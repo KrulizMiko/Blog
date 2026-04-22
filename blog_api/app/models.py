@@ -1,6 +1,7 @@
 from app import db
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import UserMixin
 
 # Таблица связи для многие-ко-многим между Post и Tag
 post_tags = db.Table('post_tags',
@@ -8,7 +9,7 @@ post_tags = db.Table('post_tags',
     db.Column('tag_id', db.Integer, db.ForeignKey('tags.id_tag'), primary_key=True)
 )
 
-class User(db.Model):
+class User(UserMixin, db.Model):
     __tablename__ = 'users'
     id_user = db.Column(db.Integer, primary_key=True)
     full_name = db.Column(db.String(150))
@@ -19,6 +20,9 @@ class User(db.Model):
     # Связи: один пользователь может иметь много постов и комментариев
     posts = db.relationship('Post', backref='author', lazy=True, cascade="all, delete-orphan")
     comments = db.relationship('Comment', backref='author', lazy=True, cascade="all, delete-orphan")
+    
+    def get_id(self):
+        return str(self.id_user)
     
     def set_password(self, password):
         """Хеширует и устанавливает пароль"""

@@ -6,11 +6,16 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_marshmallow import Marshmallow
+from flask_login import LoginManager
+
+# from flask_session import Session
 
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
 ma = Marshmallow()
+login_manager = LoginManager()
+# sess = Session()
 
 def create_app(config_name='development'):
     app = Flask(__name__)
@@ -24,6 +29,10 @@ def create_app(config_name='development'):
     
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'super-secret-key-change-in-production')
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'another-secret-key-change-in-production')
+    app.config['SESSION_TYPE'] = 'filesystem'
+    print(f"SECRET_KEY set: {app.config['SECRET_KEY'] is not None}")
+    print(f"SECRET_KEY value: {app.config['SECRET_KEY']}")
     app.json.ensure_ascii = False  # Чтобы русский текст в JSON отображался корректно
 
     # Инициализация расширений
@@ -31,6 +40,14 @@ def create_app(config_name='development'):
     migrate.init_app(app, db)
     jwt.init_app(app)
     ma.init_app(app)
+    login_manager.init_app(app)
+    login_manager.login_view = 'main.login'
+    # sess.init_app(app)
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        from app.models import User
+        return User.query.get(int(user_id))
 
     # Логирование
     setup_logging(app)
@@ -70,6 +87,12 @@ def create_app(config_name='development'):
     # Импорт и регистрация маршрутов
     from app.routes import main_bp
     app.register_blueprint(main_bp)
+    print("Blueprint registered")
+
+    @app.route('/test', methods=['POST'])
+    def test():
+        print("Test route called")
+        return "Test OK"
 
     return app
 
@@ -85,4 +108,9 @@ def setup_logging(app):
     file_handler.setLevel(logging.INFO)
     app.logger.addHandler(file_handler)
     app.logger.setLevel(logging.INFO)
+    
+    # Отключаем ротацию для тестов
+    if app.config.get('TESTING'):
+        file_handler.doRollover = lambda: None
+    
     app.logger.info('Blog API startup')

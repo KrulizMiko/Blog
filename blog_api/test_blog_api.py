@@ -98,7 +98,7 @@ def test_health_check(client):
     """Проверка что API работает"""
     response = client.get('/')
     assert response.status_code == 200
-    assert response.get_json()['message'] == 'Блог API работает!'
+    assert 'Блог' in response.get_data(as_text=True)  # Проверяем что есть HTML с "Блог"
 
 
 def test_user_registration_success(client):

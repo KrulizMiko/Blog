@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Создать пост - Блог{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h3>Создать новый пост</h3>
+            </div>
+            <div class="card-body">
+                <form method="POST">
+                    <div class="mb-3">
+                        <label for="title" class="form-label">Заголовок</label>
+                        <input type="text" class="form-control" id="title" name="title" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Категория</label>
+                        <select class="form-control" id="category" name="id_category">
+                            <option value="">Без категории</option>
+                            {% for category in categories %}
+                            <option value="{{ category.id_category }}">{{ category.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="tags" class="form-label">Теги (через запятую)</label>
+                        <input type="text" class="form-control" id="tags" name="tags" placeholder="тег1, тег2, тег3">
+                    </div>
+                    <div class="mb-3">
+                        <label for="content" class="form-label">Содержание</label>
+                        <textarea class="form-control" id="content" name="content" rows="10" required></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="status" class="form-label">Статус</label>
+                        <select class="form-control" id="status" name="status">
+                            <option value="draft">Черновик</option>
+                            <option value="published" selected>Опубликован</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Создать пост</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

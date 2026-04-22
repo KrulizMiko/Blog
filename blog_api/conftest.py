@@ -7,14 +7,15 @@ from app import create_app, db
 from app.models import User
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='function')
 def app():
-    """Создание приложения для тестов (session scope)"""
+    """Создание приложения для тестов"""
     app = create_app(config_name='testing')
     
     with app.app_context():
         db.create_all()
         yield app
+        db.session.remove()
         db.drop_all()
 
 
